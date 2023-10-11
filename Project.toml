@@ -1,0 +1,20 @@
+name = "molecular"
+uuid = "e5de7949-826c-49d1-b5d8-d2dd9a3c34a3"
+authors = ["ar "]
+version = "0.1.0"
+
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+FLoops = "cc61a311-1640-44b5-9fba-1b764f453329"
+Folds = "41a02a25-b8f0-4f67-bc48-60067656b558"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+RedefStructs = "91f8d46f-6a72-421b-a56e-b73459bd5e0a"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
+Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
