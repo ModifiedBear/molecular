@@ -1,6 +1,7 @@
 using CairoMakie, CSV, DataFrames
 using LinearAlgebra: norm
 using ProgressMeter
+using .Threads
 
 struct Sim
   dt::Float64
@@ -25,8 +26,8 @@ function Density(X::Vector{Float64},Y::Vector{Float64},samplePoint::Vector{Float
   mass = 1.0
   
   #ThreadsX.foreach(zip(X, Y)) do (x,y)
-  for (x,y) in zip(X,Y)
-    dst = norm([x,y] - samplePoint)
+  @inbounds for (x,y) in zip(X,Y)
+    @fastmath dst = norm([x,y] - samplePoint)
     weight = kernel.(radius, dst)
     den += mass * weight
   end
@@ -36,14 +37,16 @@ end
 #function Density(X::Observable, Y::Observable)
 
 
-function animate(percentage)
+function animate(percentage, cmap)
 
   begin 
     xdata = CSV.read("./x_pos.csv", DataFrame); 
     ydata = CSV.read("./y_pos.csv", DataFrame) 
+    fdata = CSV.read("./forces.csv", DataFrame)
   end;
+  fdata = Matrix(fdata)
 
-  x0 = 2.0
+  x0 = 1.0
   y0 = 1.0
   dr = 0.01
   radius = 0.5
@@ -52,37 +55,55 @@ function animate(percentage)
   xdom = Observable(-x0:dr:x0)
   ydom = Observable(-y0:dr:y0)
   
+  all_rows = convert(Int, round(size(xdata, 1) * percentage/100))
+  fluid_vec = zeros(length(xdom.val), length(ydom.val), all_rows)
   
+  f(x,y,i,j) = Density(x,y, [i,j], radius)
+
+  @time XV = [collect(xdata[row,1:end-1]) for row in 1:all_rows]
+  @time YV = [collect(ydata[row,1:end-1]) for row in 1:all_rows]
+  # @time map(f, Mat[])
+  prog = Progress(all_rows)
+
+  # @time begin
+  #   @threads for row in 1:all_rows # this takes a lot of time
+  #     @inbounds @fastmath fluid_vec[:,:,row] = f.(Ref(XV[row]),Ref(YV[row]), xdom.val, ydom.val')
+  #     next!(prog)
+  #   end
+  # end
   #row_arr = (1:20)
   # FIGURE ##########################
-  fig =  Figure(theme=theme_black())
-  ax = Axis(fig[1,1], xlabel="x", ylabel="y")
+  fig =  Figure(theme=theme_dark())
+  ax = Axis(fig[1,1], xlabel="x", ylabel="y", limits=(-x0, x0, -y0, y0))
   X = Observable(collect(xdata[1,begin:end-1]))
   Y = Observable(collect(ydata[1,begin:end-1]))
   
-  f(i,j) = Density(X.val,Y.val, [i,j], radius)
+  # f(i,j) = Density(X.val,Y.val, [i,j], radius)
   
-  fluid = f.(xdom.val, ydom.val')
-  fluid_obs = Observable(f.(xdom.val, ydom.val'))
-  joint_limits = (minimum(fluid),maximum(fluid))
+  # fluid_obs = Observable(fluid_vec[:,:,1])
+  #joint_limits = (minimum(fluid_obs.val),maximum(fluid_obs.val))
   
-  hm=heatmap!(ax, xdom, ydom, fluid_obs, colormap=:curl,colorrange = joint_limits)
-  scatter!(ax, X, Y, color=:black)
+  # hm=heatmap!(ax, xdom, ydom, fluid_obs, colormap=:curl,colorrange = joint_limits)
+  C = Observable(fdata[1,:]);
+  
+  scatter!(ax, X, Y, color=C, colormap=cmap)
   ax.aspect=DataAspect()
   # cb=Colorbar(fig[1,2], hm, colorrange = (min_col, max_col))
   #  resize!(f.scene, gridlayoutsize(f.layout) .+ (32, 32))
   resize_to_layout!(fig)
   
   
-  framerate = 50
-  all_rows = convert(Int, round(size(xdata, 1) * percentage/100))
+  framerate = 60
   prog = Progress(all_rows)
-  record(fig, "time_animation.mp4", 1:all_rows; framerate = framerate) do row
+  anim_name = "time_animation.mp4"
+  record(fig, anim_name, 1:all_rows; framerate = framerate) do row
     X[] = collect(xdata[row,begin:end-1])
     Y[] = collect(ydata[row,begin:end-1])
-    fluid_obs[] = f.(xdom.val, ydom.val')
+    C[] = fdata[row,:]
+    # fluid_obs[] = fluid_vec[:,:,row]
     next!(prog)
   end
+  run(`mpv --loop-file=yes time_animation.mp4 `)
 end
 
 function compareStates()

@@ -1,3 +1,5 @@
+# TODO: add forces by walls
+
 using StaticArrays, Random, Statistics, DataFrames
 using BenchmarkTools
 # using FLoops
@@ -6,7 +8,10 @@ using CSV
 # using Tables: table
 using .Threads
 using ThreadsX
-using Distributed: @distributed, @sync
+using Distributed: @distributed, @sync, @everywhere
+@everywhere using SharedArrays
+
+using ProgressMeter
 
 
 mutable struct Particle
@@ -27,7 +32,7 @@ struct Sim
 end
 
 
-function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::Float64)
+function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::Float64, pressureMultiplier::Float64)
 
   gravity = 10.0;
 
@@ -40,7 +45,8 @@ function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::F
   
   # ThreadsX.foreach(enumerate(particles)) do (particleIndex, p)
   # println("Update step")
-  for (particleIndex, p) in enumerate(particles)
+  # for (particleIndex, p) in enumerate(particles)
+  @sync @distributed for p in particles
     p.vel += [0.0,-1.0] * gravity * sim.dt;
     #particle_densities = [Density(particles, p.pos, smooth_radius) for p in particles]
     p.density = Density(particles, p.pos, sim.radius) 
@@ -49,10 +55,12 @@ function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::F
 
 # calculate pressure forces
 # @floop begin
+  forceArray = zeros(length(particles))
   for (particleIndex, p) in enumerate(particles)
-    forces = Force(particles, particleIndex, sim.radius)
+    forces = Force(particles, particleIndex, sim.radius, pressureMultiplier)
     forces = forces / p.density
     p.vel = forces * sim.dt;
+    forceArray[particleIndex] = norm(forces)
   end 
 # end
 
@@ -82,6 +90,8 @@ function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::F
   # println("")
   # println("-------------")
   # end
+  return forceArray
+  
 end
 
 
@@ -106,7 +116,7 @@ function kernelDerivative(radius::Float64, distance::Float64)
   return (distance - radius) * scale
 end
 
-function Density(p::Vector{Particle},samplePoint::MVector{2,Float64}, radius::Float64)
+@everywhere function Density(p::Vector{Particle},samplePoint::MVector{2,Float64}, radius::Float64)
   den = 0.0
   mass = 1.0
   
@@ -139,9 +149,9 @@ function randomDir()
 end
 
 
-function densityToPressure(ρ::Float64)
+function densityToPressure(ρ::Float64, pressureMultiplier::Float64)
   targetDensity = 1.0
-  pressureMultiplier = 10.0
+  # pressureMultiplier = 50.0
 
   densityError = ρ - targetDensity
   pressure = densityError * pressureMultiplier
@@ -149,7 +159,7 @@ function densityToPressure(ρ::Float64)
   
 end
 
-function Force(p::Vector{Particle}, particleIndex::Int, radius::Float64)
+function Force(p::Vector{Particle}, particleIndex::Int, radius::Float64, pressureMultiplier::Float64)
   # calculates force only between particles
   # have to make sure no singularity is present in the distances
   # we do this by
@@ -160,7 +170,7 @@ function Force(p::Vector{Particle}, particleIndex::Int, radius::Float64)
   mass = 1.0
   force = zeros(2)
   particleDensity = p[particleIndex].density
-  particlePressure = densityToPressure(particleDensity)
+  particlePressure = densityToPressure(particleDensity, pressureMultiplier)
   # println("")
   # println("Force Calc")
   for (otherParticleIndex, particle) in enumerate(p)
@@ -190,7 +200,7 @@ function Force(p::Vector{Particle}, particleIndex::Int, radius::Float64)
     end
 
     dWdx = kernelDerivative(radius, distance);
-    otherPressure = densityToPressure(otherDensity)
+    otherPressure = densityToPressure(otherDensity, pressureMultiplier)
     # calculate shared force
     force += -(particlePressure + otherPressure) / 2 * direction * dWdx * mass / otherDensity;
     # force += otherPressure * direction * dWdx * mass / otherDensity;
@@ -201,29 +211,37 @@ end
 
 #begin
 #begin #main()
-function main(n_particles::Int)
+function main(n_particles::Int, smooth_radius::Float64, pressure_multiplier::Float64)
   # convention: snake_case for variables
   #             camelCase for passed values in functions
   RNG = MersenneTwister(1223)
-  x0 = 2.0
+  x0 = 1.0
   y0 = 1.0
-  dr = 0.01
+  dx = 0.2
+  n_dom = 100
   #n_particles=500
   dampen_factor= 0.01
   particle_size = 0.001
   
-  smooth_radius = 0.5
+  #smooth_radius = 0.5
   T = Sim(0.01, 10.0, smooth_radius)
   
   bounds_size = [2*x0, 2*y0]
   half_bound_size = bounds_size / 2 - ones(2) * particle_size;
 
-  x_domain = -x0:dr:x0
-  y_domain = -y0:dr:y0
+
+
+
+  # x_domain = vcat(collect(-n_dom/2:0.0)*2/n_dom * (dx) .- (x0 - dx),
+  #                 collect(0.0:n_dom/2)*2/n_dom  * (dx) .+ (x0 - dx))
+  # x_domain = (-n_dom/2:n_dom/2) * 2/n_dom * x0/3
+  # y_domain = (-n_dom/2:n_dom/2) * 2/n_dom * y0/3
+  x_domain = (-n_dom:0) * 1/n_dom * dx .- (x0 - dx)
+  y_domain = (-n_dom:0) * 1/n_dom * dx .- (y0 - dx)
 
   r_dom() = MVector{2}([rand(x_domain),rand(y_domain)])
   v_dom() = MVector{2}([rand(), rand()])
-  particles = [Particle(r_dom(), v_dom(),particle_size,dampen_factor, 0.0) for _ in 1:n_particles]
+  particles = @showprogress [Particle(r_dom(), v_dom(),particle_size,dampen_factor, 0.0) for _ in 1:n_particles]
  
   # all samples
   # fluid = [Density(particles, [x,y], T.radius) for x in x_domain, y in y_domain]
@@ -235,15 +253,17 @@ function main(n_particles::Int)
   t_range = 0:T.dt:T.tend
   dfx = zeros(length(t_range), n_particles)
   dfy = zeros(length(t_range), n_particles)
+  df_force = zeros(length(t_range), n_particles)
   
   # run simulation
   # ThreadsX.foreach(enumerate(t_range)) do (row, t)
-  for (row, t) in enumerate(t_range)
-    update!(particles, T, half_bound_size[1], half_bound_size[2])
-    positions = transpose(mapreduce((p) -> p.pos, hcat,  particles)) # get positions
+  @showprogress for (row, t) in enumerate(t_range)
+    forces = update!(particles, T, half_bound_size[1], half_bound_size[2], pressure_multiplier)
+    positions = transpose(mapreduce((p::Particle) -> p.pos, hcat,  particles)) # get positions
 
-    dfx[row,:] = positions[:,1]
-    dfy[row,:] = positions[:,2]
+    dfx[row,:] = @view positions[:,1]
+    dfy[row,:] = @view positions[:,2]
+    df_force[row,:] = forces
     #println("t=$t")
     #densities = transpose(mapreduce((p) -> p.density, hcat,  particles))
     #fluid = [Density(particles, [x,y], T.radius) for x in x_domain, y in y_domain]
@@ -258,14 +278,18 @@ function main(n_particles::Int)
   names = vcat(["n$i" for i in 1:n_particles], "t")
   dframe_x = DataFrame([dfx t_range], names)
   dframe_y = DataFrame([dfy t_range], names)
+  dframe_f = DataFrame(df_force, names[1:end-1])
   # # create for storage  
   file_path_x = "./x_pos.csv"
   file_path_y = "./y_pos.csv"
+  file_path_f = "./forces.csv"
   isfile(file_path_x) ? rm(file_path_x) : 0;
   isfile(file_path_y) ? rm(file_path_y) : 0;
+  isfile(file_path_f) ? rm(file_path_f) : 0;
   
   CSV.write(file_path_x, dframe_x)
   CSV.write(file_path_y, dframe_y)
+  CSV.write(file_path_f, dframe_f)
 
   # save environment variables
 
