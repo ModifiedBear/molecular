@@ -2,11 +2,6 @@ using CairoMakie, CSV, DataFrames
 using LinearAlgebra: norm
 using ProgressMeter
 
-begin 
-  xdata = CSV.read("./x_pos.csv", DataFrame); 
-  ydata = CSV.read("./y_pos.csv", DataFrame) 
-end;
-
 struct Sim
   dt::Float64
   tend::Float64
@@ -42,6 +37,12 @@ end
 
 
 function animate(percentage)
+
+  begin 
+    xdata = CSV.read("./x_pos.csv", DataFrame); 
+    ydata = CSV.read("./y_pos.csv", DataFrame) 
+  end;
+
   x0 = 2.0
   y0 = 1.0
   dr = 0.01
@@ -85,6 +86,10 @@ function animate(percentage)
 end
 
 function compareStates()
+  begin 
+    xdata = CSV.read("./x_pos.csv", DataFrame); 
+    ydata = CSV.read("./y_pos.csv", DataFrame) 
+  end;
   x0 = 2.0
   y0 = 1.0
   dr = 0.01
