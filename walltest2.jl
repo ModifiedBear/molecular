@@ -32,12 +32,13 @@ struct Sim
 end
 
 
-function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::Float64, pressureMultiplier::Float64)
+function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::Float64, pressureMultiplier::Float64, randomMultiplier::Float64)
 
-  gravity = 10.0;
+  gravity = 00.0;
 
   # TODO: add parallelization to the SEPARATE "for" loops
   # TODO: add @sync @distributed i.e. 
+  
 
   # calculate densities
   # apply gravity
@@ -55,11 +56,16 @@ function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::F
 
 # calculate pressure forces
 # @floop begin
+  # TODO: use verlet
+  # TODO: add viscous forces (compute laplacian)
   forceArray = zeros(length(particles))
   for (particleIndex, p) in enumerate(particles)
     forces = Force(particles, particleIndex, sim.radius, pressureMultiplier)
     forces = forces / p.density
-    p.vel = forces * sim.dt;
+    p.vel = p.vel + forces * sim.dt; # no inertia (gas-like?)
+    randVel = [rand()*rand([1.0,-1.0]), rand()*rand([1.0,-1.0])]
+    p.vel += randVel / norm(randVel) * randomMultiplier
+    
     forceArray[particleIndex] = norm(forces)
   end 
 # end
@@ -69,7 +75,7 @@ function update!(particles::Vector{Particle}, sim::Sim, condx::Float64, condy::F
 # @floop begin 
   for p in particles
 
-    p.pos += p.vel * sim.dt;
+    p.pos += p.vel * p.damp * sim.dt;
 
     # check y
     if abs(p.pos[2]) > condy
@@ -211,7 +217,7 @@ end
 
 #begin
 #begin #main()
-function main(n_particles::Int, smooth_radius::Float64, pressure_multiplier::Float64)
+function main(n_particles::Int, smooth_radius::Float64, pressure_multiplier::Float64, dampen_factor::Float64)
   # convention: snake_case for variables
   #             camelCase for passed values in functions
   RNG = MersenneTwister(1223)
@@ -220,7 +226,7 @@ function main(n_particles::Int, smooth_radius::Float64, pressure_multiplier::Flo
   dx = 0.2
   n_dom = 100
   #n_particles=500
-  dampen_factor= 0.01
+  # dampen_factor= dampen_factor / 
   particle_size = 0.001
   
   #smooth_radius = 0.5
@@ -236,8 +242,8 @@ function main(n_particles::Int, smooth_radius::Float64, pressure_multiplier::Flo
   #                 collect(0.0:n_dom/2)*2/n_dom  * (dx) .+ (x0 - dx))
   # x_domain = (-n_dom/2:n_dom/2) * 2/n_dom * x0/3
   # y_domain = (-n_dom/2:n_dom/2) * 2/n_dom * y0/3
-  x_domain = (-n_dom:0) * 1/n_dom * dx .- (x0 - dx)
-  y_domain = (-n_dom:0) * 1/n_dom * dx .- (y0 - dx)
+  x_domain = (-n_dom:0) * 1/n_dom * dx .- (x0 - dx) .+ dx; y_domain = (-n_dom:0) * 1/n_dom * dx .- (y0 - dx) .+ dx
+  # x_domain = (-n_dom/2:n_dom/2) * 2/n_dom * x0; y_domain = (-n_dom/2:n_dom/2) * 2/n_dom * y0
 
   r_dom() = MVector{2}([rand(x_domain),rand(y_domain)])
   v_dom() = MVector{2}([rand(), rand()])
@@ -257,8 +263,9 @@ function main(n_particles::Int, smooth_radius::Float64, pressure_multiplier::Flo
   
   # run simulation
   # ThreadsX.foreach(enumerate(t_range)) do (row, t)
+  random_multiplier=2.0
   @showprogress for (row, t) in enumerate(t_range)
-    forces = update!(particles, T, half_bound_size[1], half_bound_size[2], pressure_multiplier)
+    forces = update!(particles, T, half_bound_size[1], half_bound_size[2], pressure_multiplier, random_multiplier)
     positions = transpose(mapreduce((p::Particle) -> p.pos, hcat,  particles)) # get positions
 
     dfx[row,:] = @view positions[:,1]

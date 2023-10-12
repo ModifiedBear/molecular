@@ -37,7 +37,7 @@ end
 #function Density(X::Observable, Y::Observable)
 
 
-function animate(percentage, cmap)
+function animate(percentage, cmap, radius::Float64, dr::Float64)
 
   begin 
     xdata = CSV.read("./x_pos.csv", DataFrame); 
@@ -48,8 +48,8 @@ function animate(percentage, cmap)
 
   x0 = 1.0
   y0 = 1.0
-  dr = 0.01
-  radius = 0.5
+  #dr = 0.05
+  # radius = 0.5
   particle_size = 0.001
 
   xdom = Observable(-x0:dr:x0)
@@ -65,12 +65,12 @@ function animate(percentage, cmap)
   # @time map(f, Mat[])
   prog = Progress(all_rows)
 
-  # @time begin
-  #   @threads for row in 1:all_rows # this takes a lot of time
-  #     @inbounds @fastmath fluid_vec[:,:,row] = f.(Ref(XV[row]),Ref(YV[row]), xdom.val, ydom.val')
-  #     next!(prog)
-  #   end
-  # end
+  @time begin
+    @threads for row in 1:all_rows # this takes a lot of time
+      @inbounds @fastmath fluid_vec[:,:,row] = f.(Ref(XV[row]),Ref(YV[row]), xdom.val, ydom.val')
+      next!(prog)
+    end
+  end
   #row_arr = (1:20)
   # FIGURE ##########################
   fig =  Figure(theme=theme_dark())
@@ -80,16 +80,16 @@ function animate(percentage, cmap)
   
   # f(i,j) = Density(X.val,Y.val, [i,j], radius)
   
-  # fluid_obs = Observable(fluid_vec[:,:,1])
+  fluid_obs = Observable(fluid_vec[:,:,1])
   #joint_limits = (minimum(fluid_obs.val),maximum(fluid_obs.val))
   
-  # hm=heatmap!(ax, xdom, ydom, fluid_obs, colormap=:curl,colorrange = joint_limits)
+  hm=heatmap!(ax, xdom, ydom, fluid_obs, colormap=:curl,interpolate=true)
   C = Observable(fdata[1,:]);
   
   scatter!(ax, X, Y, color=C, colormap=cmap)
   ax.aspect=DataAspect()
-  # cb=Colorbar(fig[1,2], hm, colorrange = (min_col, max_col))
-  #  resize!(f.scene, gridlayoutsize(f.layout) .+ (32, 32))
+  #cb=Colorbar(fig[1,2], hm)
+  # resize!(f.scene, gridlayoutsize(f.layout) .+ (32, 32))
   resize_to_layout!(fig)
   
   
@@ -100,7 +100,7 @@ function animate(percentage, cmap)
     X[] = collect(xdata[row,begin:end-1])
     Y[] = collect(ydata[row,begin:end-1])
     C[] = fdata[row,:]
-    # fluid_obs[] = fluid_vec[:,:,row]
+    fluid_obs[] = fluid_vec[:,:,row]
     next!(prog)
   end
   run(`mpv --loop-file=yes time_animation.mp4 `)

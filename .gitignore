@@ -27,5 +27,6 @@ Manifest.toml
 *.mp4
 *.png
 *.jpg
+*.gif
 
 images/*
